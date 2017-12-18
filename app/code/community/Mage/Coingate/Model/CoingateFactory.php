@@ -8,8 +8,41 @@ class Mage_Coingate_Model_CoingateFactory extends Mage_Payment_Model_Method_Abst
 {
     protected $_isGateway = TRUE;
     protected $_canAuthorize = TRUE;
+    protected $_canCapture = TRUE;
 
     protected $_code = 'coingate';
+    
+    /**
+     * Custom by Harshit. Invoice order
+     * 
+     * @param Mage_Sales_Model_Order $order
+     * @return Mage_Coingate_Model_CoingateFactory
+     */
+    protected function _invoiceOrder(Mage_Sales_Model_Order $order) {
+        try {
+            if (!$order->canInvoice()) {
+                return $this;
+            }
+
+            $invoice = Mage::getModel('sales/service_order', $order)->prepareInvoice();
+
+            if (!$invoice->getTotalQty()) {
+                Mage::throwException(Mage::helper('core')->__('Cannot create an invoice without products.'));
+            }
+
+            $invoice->setRequestedCaptureCase(Mage_Sales_Model_Order_Invoice::CAPTURE_OFFLINE);
+            $invoice->register();
+            $transactionSave = Mage::getModel('core/resource_transaction')
+                ->addObject($invoice)
+                ->addObject($invoice->getOrder());
+
+            $transactionSave->save();
+        }
+        catch (Mage_Core_Exception $e) {
+            Mage::logException($e);
+        }
+        return $this;
+    }
 
     public function getOrderPlaceRedirectUrl()
     {
@@ -93,6 +126,8 @@ class Mage_Coingate_Model_CoingateFactory extends Mage_Payment_Model_Method_Abst
             switch ($cgOrder->status) {
                 case 'paid':
                     $mageStatus = $cgConfig['invoice_paid'];
+                    // Custom by Harshit - Auto invoice order on paid
+                    $this->_invoiceOrder($order);
                     break;
                 case 'canceled':
                     $mageStatus = $cgConfig['invoice_canceled'];
